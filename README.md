@@ -5,10 +5,10 @@ This project analyzes single-cell RNA sequencing data from triple-negative breas
 ## 📁 Project Structure
 
 - `data/` – Contains placeholders and instructions to download raw data
-- `scripts/` – (Coming soon) Analysis scripts
-- `output/` – (Coming soon) Generated plots and results
-- `TNBC_scRNAseq_Analysis.Rmd` – Main RMarkdown analysis (bonus points if used)
-- `PowerPoint/` – Final presentation (optional)
+- `scripts/` – Analysis scripts
+- `output/` –  Generated plots and results
+- `TNBC_scRNAseq_Analysis.Rmd` – Main RMarkdown analysis 
+- `PowerPoint/` – Final presentation
 
 ## 🧬 Dataset
 
