@@ -1,0 +1,16 @@
+# R/RStudio files
+.Rproj.user
+.Rhistory
+.RData
+
+# Data (except the readme file)
+data/*
+!data/README.md
+
+# Output results
+output/
+
+# Rendered reports
+*.html
+*.pdf
+*.pptx
