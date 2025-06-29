@@ -1,0 +1,152 @@
+---
+title: "TNBC_final_workshop_project"
+author: "Jubayer Hasan"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Triple-negative breast cancer (TNBC) is a highly aggressive and heterogeneous subtype of breast cancer with limited treatment options and a strong tendency to metastasize. To better understand the underlying cellular diversity and identify metastatic subpopulations, we analyzed single-cell RNA-sequencing (scRNA-seq) data derived from TNBC patient samples.
+
+Using a modular pipeline built in R and Seurat, we will performe data quality control, normalization, dimensionality reduction, clustering, and cell type annotation. We will then apply metastasis-related gene signatures to identify tumor subpopulations with high metastatic potential. This integrative approach will provide insight into the cellular landscape of TNBC and highlights key molecular features associated with disease progression.
+
+```{r packages, message=FALSE,include=FALSE}
+library(Seurat)
+library(dplyr)
+library(readr)
+library(tibble)
+library(Matrix)
+library(qs)
+library(ggplot2)
+library(patchwork)
+```
+
+## Distribution of the Count Matrix
+
+### Initial Cell Count
+
+```{r loading data, include=FALSE, message=FALSE, warning=FALSE}
+counts <- read.csv("counts_rsem.csv.gz", row.names = 1)
+meta <- read.csv("meta_data.csv", row.names = 1)
+
+# Check dimensions match
+stopifnot(all(colnames(counts) == rownames(meta)))
+
+# Create Seurat object
+seurat_obj <- CreateSeuratObject(counts = counts, meta.data = meta)
+
+#cell count
+ncol(seurat_obj) 
+
+```
+
+We have 1112 cells from three triple negative cancer patients, unfortunately this data set doesn't come with Mitochondrial Cells , let's assume that the data set doesn't include dead cells. let's focus on the distribution plot.
+
+```{r visualising, echo=FALSE, message=FALSE, warning=FALSE}
+# 2. Create clearer violin plots
+qc_plots <- VlnPlot(seurat_obj,
+                    features = c("nFeature_RNA", "nCount_RNA"),
+                    pt.size = 0.1, # Show fewer points for clarity
+                    ncol = 2) + 
+  NoLegend()
+# 3. Format the Y-axis to be more readable
+qc_plots[[1]] <- qc_plots[[1]] + scale_y_continuous(labels = scales::comma)
+qc_plots[[2]] <- qc_plots[[2]] + scale_y_continuous(labels = function(x) paste0(x/1e6, "M"))
+
+# Display plots
+qc_plots
+```
+
+A quick refresh on the attributes of the data set:
+
+1.  **nCount_RNA :** This is the total UMI counts, most genuine single cells fall in the 50K-2.5M UMI range in human samples, above 3M often indicates doublets (two cells captured together).
+
+    > we can see that some cells in our data set have extremely high UMI counts.
+
+2.  **nFeature_RNA :** This indicates how many genes per cell are captured. Healthy human cells usually detect 1,000-6,000 genes. less that 500 genes suggests poor RNA capture (dying cells or empty droplets)
+
+    > 8,000 genes often indicates doublets (combined gene expression of two cells).
+
+### Scatter Plot
+
+Lets see the scatter plots
+
+```{r scatter, echo=FALSE}
+# Create the scatter plot with formatted Y-axis (nCount_RNA)
+plot <- FeatureScatter(seurat_obj, 
+                      feature1 = "nFeature_RNA", 
+                      feature2 = "nCount_RNA") +
+        scale_y_continuous(
+          labels = scales::label_number(scale = 1e-6, suffix = "M")  # Converts to millions
+        )
+
+# Display the plot
+print(plot)
+```
+
+# Quality Control
+
+```{r QC, include=FALSE, message=FALSE, warning=FALSE}
+seurat_filtered <- subset(seurat_obj,  
+                         nFeature_RNA > 500 & nFeature_RNA < 7500 &  
+                         nCount_RNA > 50000 & nCount_RNA < 3e6)  
+```
+
+To ensure high-quality single-cell RNA sequencing data, we performed rigorous quality control (QC) by filtering out low-quality cells, empty droplets, and doublets using standard thresholds: cells with \<500 or \>7,500 genes, \<50,000 or \>3 million UMIs, and \>15% mitochondrial gene expression were excluded. These cutoffs, informed by the data's violin plot distributions, remove technical artifacts while preserving biological relevance, resulting in a cleaned dataset of `850` cells suitable for downstream analysis. This step is critical for accurate interpretation of cellular heterogeneity and gene expression patterns.
+
+```{r viz, echo=FALSE, fig.width=12, fig.height=6, warning=FALSE, message=FALSE}
+# Load required packages
+library(ggplot2)
+library(patchwork)
+library(scales)
+
+# Extract metadata
+meta <- seurat_obj@meta.data
+
+# Plot 1: nFeature_RNA
+p1 <- ggplot(meta, aes(x = nFeature_RNA)) +
+  geom_density(fill = "#56B4E9", alpha = 0.6) +
+  geom_vline(xintercept = c(500, 7500), 
+             linetype = "dashed", 
+             color = "red", 
+             linewidth = 0.8) +
+  labs(title = "A. Genes per Cell (nFeature_RNA)",
+       x = "Genes detected",
+       y = "Density") +
+  scale_x_continuous(labels = comma_format()) +
+  theme_bw(base_size = 14) +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12))
+
+# Plot 2: nCount_RNA
+p2 <- ggplot(meta, aes(x = nCount_RNA)) +
+  geom_density(fill = "#009E73", alpha = 0.6) +
+  geom_vline(xintercept = c(50000, 3000000),
+             linetype = "dashed",
+             color = "red",
+             linewidth = 0.8) +
+  scale_x_log10(labels = label_number(scale = 1e-6, suffix = "M"),
+                breaks = 10^(4:7)) +
+  labs(title = "B. RNA Molecules per Cell (nCount_RNA)",
+       x = "Total UMIs (log10 scale)",
+       y = NULL) +
+  theme_bw(base_size = 14) +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        axis.title = element_text(size = 12))
+
+# Combine plots with proper layout
+combined_plot <- p1 + p2 +
+  plot_layout(ncol = 2) +
+  plot_annotation(theme = theme(
+    text = element_text(family = "Arial"),
+    plot.margin = margin(1, 1, 1, 1, "cm")
+  ))
+
+# Print the combined plot
+combined_plot
+```
